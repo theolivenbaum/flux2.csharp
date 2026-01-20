@@ -2,12 +2,20 @@
 # Makefile
 
 CC = gcc
-CFLAGS_BASE = -Wall -Wextra -O3 -march=native -ffast-math
+CFLAGS_BASE = -Wall -Wextra -O3 -march=native -ffast-math -fPIC
 LDFLAGS = -lm
 
 # Platform detection
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_S),Darwin)
+    SHLIB_EXT = dylib
+else ifeq ($(findstring NT,$(UNAME_S)),NT)
+    SHLIB_EXT = dll
+else
+    SHLIB_EXT = so
+endif
 
 # Source files
 SRCS = flux.c flux_kernels.c flux_tokenizer.c flux_vae.c flux_transformer.c flux_sample.c flux_image.c flux_safetensors.c flux_qwen3.c flux_qwen3_tokenizer.c
@@ -15,11 +23,12 @@ OBJS = $(SRCS:.c=.o)
 MAIN = main.c
 TARGET = flux
 LIB = libflux.a
+SHLIB = libflux.$(SHLIB_EXT)
 
 # Debug build flags
 DEBUG_CFLAGS = -Wall -Wextra -g -O0 -DDEBUG -fsanitize=address
 
-.PHONY: all clean debug lib install info test pngtest help generic blas mps
+.PHONY: all clean debug lib shared shared_generic shared_blas shared_mps install info test pngtest help generic blas mps
 
 # Default: show available targets
 all: help
@@ -27,12 +36,21 @@ all: help
 help:
 	@echo "FLUX.2 klein 4B - Build Targets"
 	@echo ""
-	@echo "Choose a backend:"
+	@echo "Choose a backend (Executable):"
 	@echo "  make generic  - Pure C, no dependencies (slow)"
 	@echo "  make blas     - With BLAS acceleration (~30x faster)"
 ifeq ($(UNAME_S),Darwin)
 ifeq ($(UNAME_M),arm64)
 	@echo "  make mps      - Apple Silicon with Metal GPU (fastest)"
+endif
+endif
+	@echo ""
+	@echo "Choose a backend (Shared Library):"
+	@echo "  make shared_generic"
+	@echo "  make shared_blas"
+ifeq ($(UNAME_S),Darwin)
+ifeq ($(UNAME_M),arm64)
+	@echo "  make shared_mps"
 endif
 endif
 	@echo ""
@@ -54,19 +72,31 @@ generic: clean $(TARGET)
 	@echo "Built with GENERIC backend (pure C, no BLAS)"
 	@echo "This will be slow but has zero dependencies."
 
+shared_generic: CFLAGS = $(CFLAGS_BASE) -DGENERIC_BUILD
+shared_generic: clean $(SHLIB)
+	@echo "Built shared library with GENERIC backend"
+
 # =============================================================================
 # Backend: blas (Accelerate on macOS, OpenBLAS on Linux)
 # =============================================================================
 ifeq ($(UNAME_S),Darwin)
-blas: CFLAGS = $(CFLAGS_BASE) -DUSE_BLAS -DACCELERATE_NEW_LAPACK
-blas: LDFLAGS += -framework Accelerate
+BLAS_CFLAGS = $(CFLAGS_BASE) -DUSE_BLAS -DACCELERATE_NEW_LAPACK
+BLAS_LDFLAGS = $(LDFLAGS) -framework Accelerate
 else
-blas: CFLAGS = $(CFLAGS_BASE) -DUSE_BLAS -DUSE_OPENBLAS -I/usr/include/openblas
-blas: LDFLAGS += -lopenblas
+BLAS_CFLAGS = $(CFLAGS_BASE) -DUSE_BLAS -DUSE_OPENBLAS -I/usr/include/openblas
+BLAS_LDFLAGS = $(LDFLAGS) -lopenblas
 endif
+
+blas: CFLAGS = $(BLAS_CFLAGS)
+blas: LDFLAGS = $(BLAS_LDFLAGS)
 blas: clean $(TARGET)
 	@echo ""
 	@echo "Built with BLAS backend (~30x faster than generic)"
+
+shared_blas: CFLAGS = $(BLAS_CFLAGS)
+shared_blas: LDFLAGS = $(BLAS_LDFLAGS)
+shared_blas: clean $(SHLIB)
+	@echo "Built shared library with BLAS backend"
 
 # =============================================================================
 # Backend: mps (Apple Silicon Metal GPU)
@@ -83,6 +113,12 @@ mps: clean mps-build
 
 mps-build: $(SRCS:.c=.mps.o) flux_metal.o main.mps.o
 	$(CC) $(MPS_CFLAGS) -o $(TARGET) $^ $(MPS_LDFLAGS)
+
+shared_mps: clean shared_mps_build
+	@echo "Built shared library with MPS backend"
+
+shared_mps_build: $(SRCS:.c=.mps.o) flux_metal.o
+	$(CC) -shared -o $(SHLIB) $^ $(MPS_LDFLAGS)
 
 %.mps.o: %.c flux.h flux_kernels.h
 	$(CC) $(MPS_CFLAGS) -c -o $@ $<
@@ -109,8 +145,13 @@ $(TARGET): $(OBJS) main.o
 
 lib: $(LIB)
 
+shared: shared_generic
+
 $(LIB): $(OBJS)
 	ar rcs $@ $^
+
+$(SHLIB): $(OBJS)
+	$(CC) -shared -o $@ $^ $(LDFLAGS)
 
 %.o: %.c flux.h flux_kernels.h
 	$(CC) $(CFLAGS) -c -o $@ $<

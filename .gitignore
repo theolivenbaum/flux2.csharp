@@ -21,3 +21,10 @@ misc/
 *.a
 *.so
 *.dylib
+
+# .NET artifacts
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.docstates
