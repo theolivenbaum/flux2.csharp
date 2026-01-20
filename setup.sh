@@ -8,6 +8,7 @@ if ! command -v dotnet &> /dev/null || [[ "$(dotnet --version)" != 10.0* ]]; the
     curl -sSL https://dotnet.microsoft.com/download/dotnet/scripts/v1/dotnet-install.sh -o dotnet-install.sh
     chmod +x dotnet-install.sh
     ./dotnet-install.sh --channel 10.0
+    rm dotnet-install.sh
     export PATH=$HOME/.dotnet:$PATH
     # Add to shell profile if needed, but for now just current session
     echo "Please add \$HOME/.dotnet to your PATH"
