@@ -1,11 +1,18 @@
 using System;
+using System.IO;
 using Flux;
 
 try
 {
-    Console.WriteLine("Flux.NET Example");
+    Console.WriteLine("Flux.NET Batch Image Generation");
 
     string modelDir = "flux-klein-model";
+    string samplesDir = "samples";
+
+    if (!Directory.Exists(samplesDir))
+    {
+        Directory.CreateDirectory(samplesDir);
+    }
 
     if (!Directory.Exists(modelDir))
     {
@@ -14,34 +21,68 @@ try
         return;
     }
 
-    // Load the context
     Console.WriteLine("Loading model...");
     using var ctx = FluxContext.Load(modelDir);
     Console.WriteLine("Model loaded successfully!");
-    Console.WriteLine($"Model Info: {ctx.GetModelInfo()}");
 
-    // Configure parameters
+    // Enable mmap for low memory systems
+    Console.WriteLine("Enabling mmap mode...");
+    ctx.SetMmap(true);
+
+    string[] prompts = new[]
+    {
+        "A futuristic city with flying cars and neon lights",
+        "A peaceful forest with a small stream and sunlight filtering through trees",
+        "An astronaut riding a horse on Mars",
+        "A cozy cabin in the snow with a warm glow from the windows",
+        "A cyberpunk cat wearing high-tech goggles",
+        "A majestic dragon perched on a mountain peak",
+        "A surreal landscape with floating islands and purple skies",
+        "A vintage portrait of a robot in Victorian clothing",
+        "A colorful coral reef with exotic fish and clear blue water",
+        "A steam-powered locomotive traveling through a desert at sunset"
+    };
+
     var paramsObj = new FluxParams
     {
         Width = 256,
         Height = 256,
-        NumSteps = 4,
-        Seed = 42
+        NumSteps = 4
     };
 
-    Console.WriteLine("Generating image with prompt: 'A beautiful sunset over the mountains'");
-    using var img = ctx.Generate("A beautiful sunset over the mountains", paramsObj);
+    for (int i = 0; i < prompts.Length; i++)
+    {
+        string prompt = prompts[i];
+        string filename = Path.Combine(samplesDir, $"sample_{i + 1}.png");
 
-    Console.WriteLine($"Image generated: {img.Width}x{img.Height}x{img.Channels}");
+        Console.WriteLine($"[{i + 1}/{prompts.Length}] Generating: {prompt}");
 
-    // Save the image
-    img.Save("output.png");
-    Console.WriteLine("Saved to output.png");
+        // Use a different seed for each image
+        var currentParams = paramsObj with { Seed = 1000 + i };
 
-    Console.WriteLine("\nFlux.NET example completed successfully.");
+        try
+        {
+            using var img = ctx.Generate(prompt, currentParams);
+            img.Save(filename);
+            Console.WriteLine($"Saved to {filename}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to generate image {i + 1}: {ex.Message}");
+            Console.WriteLine($"Flux Error: {FluxContext.GetError()}");
+
+            // If we hit OOM, it's better to stop
+            if (ex.Message.Contains("Out of memory") || FluxContext.GetError().Contains("memory"))
+            {
+                break;
+            }
+        }
+    }
+
+    Console.WriteLine("\nBatch generation completed.");
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"Error: {ex.Message}");
+    Console.WriteLine($"Critical Error: {ex.Message}");
     Console.WriteLine($"Flux Error: {FluxContext.GetError()}");
 }

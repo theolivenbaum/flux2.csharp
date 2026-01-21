@@ -28,3 +28,8 @@ misc/
 *.user
 *.userosscache
 *.sln.docstates
+
+# Logs and temp files
+*.log
+wget-log*
+dotnet-install.sh
